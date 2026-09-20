@@ -36,7 +36,7 @@ connectDatabase();
 // Home route
 app.get("/", (req, res) => {
   res.json({
-    message: "Product CRUD API is running",
+    message: "Product CRUD API is running ",
   });
 });
 
