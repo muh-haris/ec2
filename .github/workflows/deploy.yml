@@ -1,0 +1,30 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Pull latest code and deploy
+        run: |
+          cd /home/ubuntu/ec2
+
+          echo "Fetching latest code..."
+          git fetch origin main
+
+          echo "Updating local repository..."
+          git reset --hard origin/main
+
+          echo "Building containers..."
+          docker compose up -d --build --remove-orphans
+
+          echo "Checking containers..."
+          docker compose ps
+
+          echo "Removing unused Docker images..."
+          docker image prune -f
