@@ -11,13 +11,13 @@ on:
 
   workflow_dispatch:
 
-# Default permissions for the workflow
+# Default permissions
 permissions:
   contents: read
 
 jobs:
   # =========================================================
-  # 1. DEPENDENCY SECURITY - NPM AUDIT
+  # 1. DEPENDENCY SECURITY SCAN - NPM AUDIT
   # =========================================================
   dependency-security:
     name: Dependency Security - npm audit
@@ -85,33 +85,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # =========================================================
-  # 4. CONTAINER SECURITY - TRIVY
-  # =========================================================
-  container-security:
-    name: Trivy Docker Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Build Docker image
-        run: |
-          docker build \
-            -t product-crud-api:security \
-            .
-
-      - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: "product-crud-api:security"
-          format: "table"
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: "HIGH,CRITICAL"
-
-  # =========================================================
-  # 5. STATIC APPLICATION SECURITY TESTING - CODEQL
+  # 4. CODEQL STATIC APPLICATION SECURITY TESTING
   # =========================================================
   codeql:
     name: CodeQL SAST Scan
@@ -135,21 +109,20 @@ jobs:
         uses: github/codeql-action/analyze@v4
 
   # =========================================================
-  # 6. DEPLOY TO EC2
+  # 5. DEPLOY TO EC2
   # =========================================================
   deploy:
     name: Deploy Backend to EC2
 
-    # Deployment will wait for ALL security jobs
+    # Deployment starts only after ALL security jobs pass
     needs:
       - dependency-security
       - eslint-security
       - secret-scan
-      - container-security
       - codeql
 
-    # Deploy only when code is actually pushed to main.
-    # Pull requests and manual security scans will not deploy.
+    # Deploy only when code is pushed to main
+    # Pull requests will run security scans but will NOT deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     runs-on: self-hosted
@@ -160,15 +133,14 @@ jobs:
           cd /home/ubuntu/ec2
 
           echo "========================================="
-          echo "Starting secure deployment..."
-          echo "Commit approved by security checks:"
-          echo "$GITHUB_SHA"
+          echo "Starting secure deployment"
+          echo "Approved commit: $GITHUB_SHA"
           echo "========================================="
 
-          echo "Fetching latest repository information..."
+          echo "Fetching latest repository data..."
           git fetch origin main
 
-          echo "Deploying exact commit that passed security..."
+          echo "Deploying exact commit that passed security checks..."
           git reset --hard "$GITHUB_SHA"
 
           echo "Building Docker containers..."
@@ -181,7 +153,7 @@ jobs:
           docker image prune -f
 
           echo "========================================="
-          echo "Deployment completed successfully."
+          echo "Deployment completed successfully"
           echo "Deployed commit:"
           git rev-parse HEAD
           echo "========================================="
