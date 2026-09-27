@@ -1,0 +1,187 @@
+name: DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+# Default permissions for the workflow
+permissions:
+  contents: read
+
+jobs:
+  # =========================================================
+  # 1. DEPENDENCY SECURITY - NPM AUDIT
+  # =========================================================
+  dependency-security:
+    name: Dependency Security - npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+  # =========================================================
+  # 2. ESLINT SECURITY SCAN
+  # =========================================================
+  eslint-security:
+    name: ESLint Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint security scan
+        run: npm run security:lint
+
+  # =========================================================
+  # 3. SECRET SCANNING - GITLEAKS
+  # =========================================================
+  secret-scan:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout complete Git history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================
+  # 4. CONTAINER SECURITY - TRIVY
+  # =========================================================
+  container-security:
+    name: Trivy Docker Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t product-crud-api:security \
+            .
+
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "product-crud-api:security"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "HIGH,CRITICAL"
+
+  # =========================================================
+  # 5. STATIC APPLICATION SECURITY TESTING - CODEQL
+  # =========================================================
+  codeql:
+    name: CodeQL SAST Scan
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write
+      packages: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+
+  # =========================================================
+  # 6. DEPLOY TO EC2
+  # =========================================================
+  deploy:
+    name: Deploy Backend to EC2
+
+    # Deployment will wait for ALL security jobs
+    needs:
+      - dependency-security
+      - eslint-security
+      - secret-scan
+      - container-security
+      - codeql
+
+    # Deploy only when code is actually pushed to main.
+    # Pull requests and manual security scans will not deploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: self-hosted
+
+    steps:
+      - name: Deploy approved commit to EC2
+        run: |
+          cd /home/ubuntu/ec2
+
+          echo "========================================="
+          echo "Starting secure deployment..."
+          echo "Commit approved by security checks:"
+          echo "$GITHUB_SHA"
+          echo "========================================="
+
+          echo "Fetching latest repository information..."
+          git fetch origin main
+
+          echo "Deploying exact commit that passed security..."
+          git reset --hard "$GITHUB_SHA"
+
+          echo "Building Docker containers..."
+          docker compose up -d --build --remove-orphans
+
+          echo "Checking running containers..."
+          docker compose ps
+
+          echo "Removing unused Docker images..."
+          docker image prune -f
+
+          echo "========================================="
+          echo "Deployment completed successfully."
+          echo "Deployed commit:"
+          git rev-parse HEAD
+          echo "========================================="
