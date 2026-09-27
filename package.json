@@ -4,11 +4,17 @@
   "description": "Node Express MySQL CRUD API using Docker",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "security:lint": "eslint .",
+    "security:audit": "npm audit --audit-level=high"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "mysql2": "^3.14.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.11.0",
+    "eslint-plugin-security": "^4.1.0"
   }
 }
